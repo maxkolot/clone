@@ -34,16 +34,16 @@ async def handler(event):
     )
 
 
-@client.on(events.NewMessage(chats="@your_nails_u"))
+@client.on(events.NewMessage(chats="@probaprov"))
 async def my_event_handler(event):
     print(event.message.message)
     gg = (event.message.message)
     ii = int(gg)
     k =  await client.get_messages(ii)
     yak = 0
-    i = (k.total - 2000)
-    # i = 2
-    while i <=k.total:
+    i = (k.total -2000 )
+    # i = 3242
+    while i <= k.total:
         
         j =  await client.get_messages(ii, ids=i)
         o = j
@@ -51,11 +51,11 @@ async def my_event_handler(event):
             if o.file != None :
                 if o.video and o.grouped_id == None or o.photo and  o.grouped_id == None :
 
-                    text1 = re.sub(r't.me\S+', 't.me/your_nails_u\n',o.text)
-                    a = re.sub(r'@\S+', '[YOUR NAILS](https://t.me/your_nails_u)\n', text1)
+                    text1 = re.sub(r't.me\S+', 't.me/tvoya_tochka\n',o.text)
+                    a = re.sub(r'@\S+', '[Твоя находка🌺](https://t.me/tvoya_tochka)\n', text1)
+                    aaa = re.sub(r'[*]', '', a)
                     
-                    
-                    await client.send_file(-1001745438393, file=o, caption=f"{a}\nПоделись с подругой☺️\n\nКрутая подборка товаров WB\n ⬇ ⬇ ⬇\n[Твоя находка🌺](https://t.me/tvoya_tochka)")
+                    await client.send_file(-1001833446046, file=o, caption=f"{aaa}\n\nКрутые ноготочки\n ⬇ ⬇ ⬇\n[YOUR NAILS](https://t.me/your_nails_u)")
                     i = i + 1
                     time.sleep(1)
                     print(f"текст: {o.text} ;;; id : {o.id} ") 
@@ -63,9 +63,41 @@ async def my_event_handler(event):
                         
                     
                 if o.grouped_id != None:
-                    # await client.send_message(-1001659081796,file  message=o, from_peer=o.chat_id )
-                    i = i + 1
+                    gid = o.grouped_id
+                    a = []
+                    ind = 0
+                    sms ="sms"
+                    def kkk(kk):
+                        if kk!=None:
+                            ki = kk.grouped_id
+                            return(ki)
+                        else:
+                            return(None)
+                    while kkk(await client.get_messages(ii, ids=i)) == gid or kkk(await client.get_messages(ii, ids=i)) != None :
+                    
+                        kur= await client.get_messages(ii, ids=i)  
+                        if kur.text!= '':
+                            sms = kur.text
+                            a.insert(ind, kur.media)
+                            i = i + 1
+                            ind = ind +1
+                            break
+                            
+                        ind = ind +1
+                        i = i + 1
+                    print(a)
+                    if sms == "sms":
+                        continue
+                    try:
+                        text1 = re.sub(r't.me\S+', 't.me/tvoya_tochka\n',sms)
+                        aaa = re.sub(r'@\S+', '[Твоя находка🌺](https://t.me/tvoya_tochka)\n', text1)
+                        aaa = re.sub(r'[*]', '', aaa)
+                    except:
+                        pass
+                    await client.send_message(-1001833446046, file=a, message=f"{aaa}\n\nКрутые ноготочки\n ⬇ ⬇ ⬇\n[YOUR NAILS](https://t.me/your_nails_u)"  )
+                    
                     yak = 0
+                    a = []
 
                     
                     continue
