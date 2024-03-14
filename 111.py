@@ -208,7 +208,7 @@ ktkxt1111= """
 """
 # target_group = Dict(id = 1581979119)
 txtktx="💳**[+12.000 ВИДЕО](https://t.me/gpprivatebot?start=dGFyaWZfMzY0NjUz)**🔥🔞"
-ktxt= "**Не упусти возможность!** \n[🔥приваты|privats🔥](t.me/oplatabotbot) " 
+ktxt= "**Не упусти возможность!** \n**[🔥ПРИВАТ🔥](t.me/oplatabotbot)**" 
 # for_group = Dict(id =1989715503)
 if target_group.noforwards == True:
 # if target_group.id == 1989715503:
@@ -331,7 +331,7 @@ else:
     l = 0
     # i = 542
     g = 2
-    i=2162
+    i=23
 
 
     
@@ -365,12 +365,19 @@ else:
                 if message.media and isinstance(message.media, types.MessageMediaPhoto) and message.media.photo.sizes:
                 # Forward the message to your target group with a custom caption
                     i = i + 1
-                    regex = r"@slivnayakrysask"
-                    replacement = r"[@sliz'fm](t.me/slizperexod)"
+                    regex = r"\[(.*?)\]\((.*?)\)"
+                    regex1 = r"\[\d+\]\(\d+\)"
+                    pattern1 = r"https?://\S+|t\.me/\S+"
+                    replacement = "**[123](113)**"
+                    replacement1 = "**[ТРА❌АЛЬНЯ](https://t.me/+BQAoHGHqtNphZTYy)**"
+                    replacement2 = ""
+                    
                     
                     if message.text !='' and result == '':
                             
                         result = re.sub(regex, replacement, message.text)
+                        result = re.sub(pattern1, replacement2, result)
+                        result = re.sub(regex1, replacement1, result)
                         # result = f"{result}{txt}"
                     album.append(message.media.photo)
                     message =  client.get_messages(target_group.id, ids=i)
@@ -379,12 +386,20 @@ else:
                     gpid = message.grouped_id
                 elif message.media and message.video:
                     i = i + 1
-                    regex = r"@slivnayakrysask"
-                    replacement = r"[@sliz'fm](t.me/slizperexod)"
-                    result = ''
+                    regex = r"\[(.*?)\]\((.*?)\)"
+                    regex1 = r"\[\d+\]\(\d+\)"
+                    pattern1 = r"https?://\S+|t\.me/\S+"
+                    replacement = "**[123](113)**"
+                    replacement1 = "**[ТРА❌АЛЬНЯ](https://t.me/+BQAoHGHqtNphZTYy)**"
+                    replacement2 = ""
+                    
+                    
+                    
                     if message.text !='' and result == '':
                             
                         result = re.sub(regex, replacement, message.text)
+                        result = re.sub(pattern1, replacement2, result)
+                        result = re.sub(regex1, replacement1, result)
                         # result = f"{result}{txt}"
                     album.append(message.file.media)
                     message =  client.get_messages(target_group.id, ids=i)
@@ -393,7 +408,7 @@ else:
                     gpid = message.grouped_id
                 else:
                     i = i + 1
-            client.send_message(for_group.id, file=album, message=ktkxt1111)
+            client.send_message(for_group.id, file=album, message=f"{result}\n{ktxt}")
                 # client.forward_messages(for_group.id, message, target_group.id)
             time.sleep(3)
             i = i - 1
@@ -407,14 +422,21 @@ else:
             if o.video and o.grouped_id == None or o.photo and  o.grouped_id == None:
                 
                     try:
-                        regex = r"@slivnayakrysask"
-                        replacement = r"[@sliz'fm](t.me/slizperexod)"
-                        result = ''
-                        if o.text !='':
-                             
+                        regex = r"\[(.*?)\]\((.*?)\)"
+                        regex1 = r"\[\d+\]\(\d+\)"
+                        pattern1 = r"https?://\S+|t\.me/\S+"
+                        replacement = "**[123](113)**"
+                        replacement1 = "**[ТРА❌АЛЬНЯ](https://t.me/+BQAoHGHqtNphZTYy)**"
+                        replacement2 = ""
+                        result = ""
+                    
+                        if o.text !='' and result == '':
+                            
                             result = re.sub(regex, replacement, o.text)
+                            result = re.sub(pattern1, replacement2, result)
+                            result = re.sub(regex1, replacement1, result)
                             # result = f"{result}{txt}"
-                        client.send_file(for_group.id, file=o, caption=ktkxt1111)
+                        client.send_file(for_group.id, file=o, caption=f"{result}\n{ktxt}")
                         # client.send_file(5308827264, file="./client.send_file(for_group.id, file=o, caption=txt2)", caption=txt2)
                         i = i + 1
                         g = g+ 1
@@ -445,14 +467,22 @@ else:
                 # i = i + 1
                 # continue    
                     try:
-                        regex = r"@slivnayakrysask"
-                        replacement = r"[@sliz'fm](t.me/slizperexod)"
-                        result = ''
-                        if o.text !='':
+                        regex = r"\[(.*?)\]\((.*?)\)"
+                        regex1 = r"\[\d+\]\(\d+\)"
+                        pattern1 = r"https?://\S+|t\.me/\S+"
+                        replacement = "**[123](113)**"
+                        replacement1 = "**[ТРА❌АЛЬНЯ](https://t.me/+BQAoHGHqtNphZTYy)**"
+                        replacement2 = ""
+                        
+                        result = ""
+                    
+                        if o.text !='' and result == '':
                                 
                             result = re.sub(regex, replacement, o.text)
+                            result = re.sub(pattern1, replacement2, result)
+                            result = re.sub(regex1, replacement1, result)
                             # result = f"{result}{txt}"
-                        client.send_message(for_group.id,  message=ktkxt1111, link_preview=False)
+                        client.send_message(for_group.id,  message=f"{result}\n{ktxt}", link_preview=False)
                         i = i + 1
                         g = g+ 2
                         time.sleep(3)
