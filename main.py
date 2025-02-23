@@ -1,514 +1,354 @@
-from xmlrpc.client import DateTime
-from telethon.sync import TelegramClient
-from telethon import TelegramClient
-import re
-import asyncio
-import aiogram
-from aiogram.types import InputFile
-from aiogram import Bot, types
-
-from telethon.sync import TelegramClient
-# from telethon.errors import PeerIdInvalid
-from telethon.tl.types import InputPeerChat
-
-from telethon.tl.functions.messages import GetDialogsRequest
-from telethon.tl.types import InputPeerEmpty
-from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import PeerChannel
-import csv
-from telethon import TelegramClient, types, functions
-from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.messages import SendMediaRequest
 import os
+import asyncio
 import logging
-import time
-from telethon import TelegramClient, events, functions, types
-from telethon.sessions import StringSession
+import random
+import string
+
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError
 from telethon.tl.types import (
-    KeyboardButton,
-    ReplyKeyboardMarkup
-    
+    DocumentAttributeVideo,
+    InputPeerEmpty
 )
-# from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
-from telethon import types
-# from telethon.tl.custom.button  import  InlineKeyboardButton, InlineKeyboardMarkup
-# from types import InlineKeyboardButton, InlineKeyboardMarkup
-from telethon.tl.types import DocumentAttributeVideo
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
-  
-ktxt= "**Не упусти возможность!** 🔥\nВ [привате](t.me/Osmotr_bot_bot?start=dGFyaWZfNDU5NTEx) доступны **полные видео**,\nкоторые стоит увидеть! 😍\n\nВход всего за **1000 рублей, и это навсегда!** \n\n🎉 **Более 6800 скрытых видео из мужских душевых, туалетов, раздевалок, уже ждут тебя! **👀\n\n✅ **Обновления каждый день**, чтобы тебе никогда не было скучно! 🔄\n\n▶️ Чтобы приобрести доступ, **[жми сюда](t.me/Osmotr_bot_bot?start=dGFyaWZfNDU5NTEx)**" 
+from telethon.tl.functions.messages import GetDialogsRequest, GetHistoryRequest
 
-# bot = Bot(token='6208274643:AAGaFq8OkYzimh9JlGL_Yke7XFD2B0Lg3QU')
-# dp = Dispatcher(bot)
+# ========== Настройки ==========
+API_ID = 20228113
+API_HASH = 'bd87a2a83030ed4aadb1fa28815130fa'
+SESSION_NAME = "myGrab"
 
+# Для старых версий Telethon (и само Telegram API) обычно лимит ~512 KB на чанк
+PART_SIZE_KB = 512
+
+logging.basicConfig(level=logging.INFO)
 
 
-my_channel_id = -1001750094401
-channels = ["me"]
-
-# client = TelegramClient('myGrab', api_id, api_hash)
-# print("GRAB - Started")
-
-
-# @client.on(events.NewMessage(chats=channels))
-# async def my_event_handler(event):
-
-#     if event.message.video:
-#         client.send_file(my_channel_id, file=event.message, caption="Самое жесткое гей порно тут👇🏻 \n[💎GPORN💎](https://t.me/gayplaygay)")
+def random_filename(prefix="file_", ext=".dat") -> str:
+    """
+    Генерирует случайное имя файла, чтобы не было коллизий.
+    """
+    rnd = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    return f"{prefix}{rnd}{ext}"
 
 
-api_id = 20228113
-api_hash = 'bd87a2a83030ed4aadb1fa28815130fa'
-
-# Создайте или укажите StringSession, чтобы сохранить сессию авторизации
-session_name = "myGrab"  # Если у вас уже есть StringSession, вставьте его сюда
-client = TelegramClient(session_name, api_id, api_hash, system_version="14.16.31-xc")
- 
-
-client.start()
-
-chats = []
-last_date = None
-chunk_size = 300
-groups = []
-
-result = client(GetDialogsRequest(
-    offset_date=last_date, 
-    offset_id=0,
-    offset_peer=InputPeerEmpty(),
-    limit=chunk_size,
-    hash=0
+async def select_group(client: TelegramClient, prompt: str = "Выберите группу"):
+    """
+    Показывает список доступных чатов/каналов (первые 300).
+    Возвращает выбранный entity (чат/канал).
+    """
+    result = await client(GetDialogsRequest(
+        offset_date=None,
+        offset_id=0,
+        offset_peer=InputPeerEmpty(),
+        limit=300,
+        hash=0
     ))
+    all_chats = result.chats
 
-chats.extend(result.chats)
+    print(f"\n{prompt}:")
+    for idx, chat in enumerate(all_chats):
+        title = getattr(chat, 'title', 'Без названия')
+        print(f"{idx}) {title}")
 
-for chat in chats:
+    group_index = int(input("Введите индекс нужного чата/канала: "))
+    target_entity = all_chats[group_index]
+    print(f"Вы выбрали: {target_entity.title}\n")
+    return target_entity
+
+
+async def get_total_messages(client: TelegramClient, entity):
+    """
+    Возвращает общее количество сообщений в выбранном чате/канале.
+    """
+    history = await client(GetHistoryRequest(
+        peer=entity,
+        offset_id=0,
+        offset_date=None,
+        add_offset=0,
+        limit=1,
+        max_id=0,
+        min_id=0,
+        hash=0
+    ))
+    return history.count
+
+
+async def iter_download_to_file(client: TelegramClient, message_or_media, out_file: str) -> bool:
+    """
+    Скачиваем message_or_media через iter_download (чанки ~512 KB),
+    записываем на диск.
+    Возвращает True, если что-то скачано (не пустое), иначе False.
+    """
+    size_downloaded = 0
     try:
-        # if chat.megagroup == False:
-            groups.append(chat)
-    except:
-        continue
-
-print('Выберете группу для парсинга сообщений и членов группы:')
-i = 0
-for g in groups:
-    
-    if g.title == "ГАРАНТИЯ":
-        print(str(i) + '-                 ' + g.title)
-        i += 1
-        continue
-        
-    print(str(i) + '- ' + g.title)
-    i += 1
-
-g_index = input("Введите нужную цифру: ")
-target_group = groups[int(g_index)]
-
-i = 0
-for g in groups:
-    print(str(i) + '- ' + g.title)
-    i += 1
-
-g_index = input("Введите нужную цифру куда будем публковать ")
-for_group = groups[int(g_index)]
-
-# link = input("Напиши название ссылки ")
-# link1 = input("Отправь ссылку ")
-# txt = (f"{input('Напиши текст ')}\n({link})[{link1}]")
-
-# async def send_video(chat_id , video, txt, i, j):
-#     # bot = Bot(token='6208274643:AAGaFq8OkYzimh9JlGL_Yke7XFD2B0Lg3QU')
-    
-#     # chat_id=f"100{chat_id}"
-#     # chat_id= -int(chat_id)
-#     # if i != "note":
-        
-#     #     bot.send_video(chat_id=chat_id, video= InputFile(video), caption=txt,duration=j.file.duration,  # Du
-#     #                         #  j.file.duration, w=j.file.width, h= j.file.heightration of the video in seconds
-#     #         width=j.file.width,  # Width of the video in pixels
-#     #         height=j.file.height,  # Height of the video in pixels
-#     #         supports_streaming=True,  # Whether the video supports streaming
-#     #         thumb=InputFile(video),  # Thumbnail for the video
-#     #           # ID of the message being replied to
-#     #         allow_sending_without_reply=True )
-        
-#     else:
-#          bot.send_video_note(chat_id, InputFile(video))
-# txt = "[SLIV ONLYFANS MEN | SOM](https://t.me/+AaiVm8vt4n5lZGVl)"
-
-# txt1 ="😈Приват тихого солдата! \n▶️Стоимость -500 руб. НАВСЕГДА!\n🥵💦💦💦Более 1000 видео,\nкак тихие солдатики дрочат в туалете, или спят с причендалами наружу)\n[ПРИВАТ](https://t.me/soldatprivatbot)"
-
-# txt = "[МОЛОДНЯК](https://t.me/zonasnaboy)"
-
-# txt1 = "😈[Приват спящих парней](https://t.me/privatsleepbot)!\n ▶️Стоимость -500 руб. НАВСЕГДА! 🥵💦💦💦\nБолее 9000 видео,\nкак спящих парней раздевают, \nтрогают и не только)\n[ПРИВАТ](https://t.me/privatsleepbot)"
-
-# txt = input("text 1 ")
-
-# txt1 =input("text 2 ")
-txt ="**[СЛИВАЕМ НАТУРАЛОВ](https://t.me/+fdC2S4RO7A1hODRi)**\nзалетай к нам в приват @slivnature_bot\n\nЕЩЕ БОЛЬШЕ НАТУРАЛОВ:  **[ЖМИ](https://t.me/slivnature_bot)**"
-txt1 ="[❤️ Самые **сочные** мальчики у нас в **ПРИВАТЕ** 🍌](t.me/Molode_bot?start=dGFyaWZfNDc2MDg1)\n\nСкорее в наш  **[приват!](t.me/Molode_bot?start=dGFyaWZfNDc2MDg1)**\n\nЗоходи и смотри первым\n[WebCam Privat](t.me/Molode_bot?start=dGFyaWZfNDc2MDg1)\n\n         **ПОДПИСЫВАЙСЯ **⬇️\n         👉 [WebCamPrivat](t.me/Molode_bot?start=dGFyaWZfNDc2MDg1)👈\n\n➡️ t.me/Molode_bot?start=dGFyaWZfNDc2MDg1 ⬅️"
-
-# keyboard = InlineKeyboardMarkup(row_width=1)
-# keyboard.add(
-#     InlineKeyboardButton(text='Открыть BotFather🤖👨🏼', url='https://t.me/BotFather'),
-#     InlineKeyboardButton("⬅ Назад", callback_data="project_type_back")
-# )
+        async with client.iter_download(message_or_media, chunk_size=512*1024, request_size=512*1024) as generator:
+            with open(out_file, 'wb') as fd:
+                async for chunk in generator:
+                    if not chunk:
+                        break
+                    fd.write(chunk)
+                    size_downloaded += len(chunk)
+        return size_downloaded > 0
+    except Exception as e:
+        logging.error(f"Ошибка при iter_download_to_file: {e}")
+        return False
 
 
-# txt1 ="😈SLIV ONLYFANS MEN PRIVAT! \n▶️Стоимость -600 руб. НАВСЕГДА!\n🥵💦💦💦Более 1000 видео и фото,\nслитых с ONLYFANS)\n[ПРИВАТ](https://t.me/somprivat_bot)"
-# for_group = groups[int(g_index)]
-# class Dict(dict):
-#     def __new__(cls, *args, **kwargs):
-#         self = dict.__new__(cls, *args, **kwargs)
-#         self.__dict__ = self
-#         return self
-ktxt= "**Не упусти возможность!** 🔥\nВ [привате](t.me/Osmotr_bot_bot?start=dGFyaWZfNDU5NTEx) доступны **полные видео**,\nкоторые стоит увидеть! 😍\n\nВход всего за **1000 рублей, и это навсегда!** \n\n🎉 **Более 6800 скрытых видео из мужских душевых, туалетов, раздевалок, уже ждут тебя! **👀\n\n✅ **Обновления каждый день**, чтобы тебе никогда не было скучно! 🔄\n\n▶️ Чтобы приобрести доступ, **[жми сюда](t.me/Osmotr_bot_bot?start=dGFyaWZfNDU5NTEx)**" 
+async def reupload_video(client: TelegramClient, message):
+    """
+    Скачивает видео (iter_download_to_file) + скачивает миниатюру через
+    download_media(thumb=-1), формирует dict для send_file(...).
+    Это удобно для ОДИНОЧНОГО видео (с сохранением стриминга и превью).
+    Для альбомов Telethon часто не применяет атрибуты к каждому видео.
+    """
+    doc = getattr(message.media, 'document', None)
+    if not doc:
+        return None
 
-ktxt= "**Не упусти возможность!** \n[🔥приваты|privats🔥](t.me/oplatabotbot) " 
-# target_group = Dict(id = 1581979119)
-# for_group = Dict(id =1989715503)
-if target_group.noforwards == True:
-# if target_group.id == 1989715503:
-    
+    # 1) Скачиваем само видео
+    video_path = random_filename(prefix="video_", ext=".mp4")
+    ok = await iter_download_to_file(client, message, video_path)
+    if not ok:
+        return None
+
+    # 2) Ищем атрибуты (продолжительность, размеры)
+    video_attribs = None
+    if doc.attributes:
+        for attr in doc.attributes:
+            if isinstance(attr, DocumentAttributeVideo):
+                video_attribs = attr
+                break
+
+    # 3) Скачиваем миниатюру thumb через download_media(..., thumb=-1)
+    thumb_path = None
+    if doc.thumbs:
+        thumb_path = random_filename(prefix="thumb_", ext=".jpg")
+        try:
+            downloaded_path = await client.download_media(
+                message=message,
+                file=thumb_path,
+                thumb=-1
+            )
+            if not downloaded_path:
+                thumb_path = None
+        except Exception as e:
+            logging.error(f"Не удалось скачать миниатюру: {e}")
+            if os.path.exists(thumb_path):
+                os.remove(thumb_path)
+            thumb_path = None
+
+    # 4) Формируем параметры для send_file
+    params = {
+        'file': video_path,
+        'force_document': False,  # отправляем как "видео"
+        'video_note': False,
+        'caption': '',
+        'allow_cache': False,
+        'part_size_kb': PART_SIZE_KB
+    }
+
+    if video_attribs:
+        params['attributes'] = [
+            DocumentAttributeVideo(
+                duration=video_attribs.duration,
+                w=video_attribs.w,
+                h=video_attribs.h,
+                supports_streaming=True
+            )
+        ]
+    else:
+        params['supports_streaming'] = True
+
+    if thumb_path:
+        params['thumb'] = thumb_path
+
+    return params
 
 
-    gg = client.get_messages(target_group.id)
-    i = 1
+async def send_album_as_uploads(entity, file_paths, caption=""):
+    """
+    Создаёт НОВОГО клиента (clientx), загружает фото/видео через upload_file(...)
+    и отправляет всё одним списком, чтобы Telegram распознал как «альбом».
+    Старой версией Telethon/Telegram могут быть ограничения (Media invalid).
+    """
 
-    # 188
-    # video id 756
-    g = 2
-    l = 0
-    while g <=gg.total:
-            txt2 = txt
-            if l == 5:
-                 txt2 = txt1 
-                 l=0   
-            txt=""
-            j =  client.get_messages(target_group.id, ids=i)
-            o=j
-            if o ==None:
-                i = i+1
+    # Можно использовать те же API_ID и API_HASH, но новую session.
+    api_id = 20228113
+    api_hash = 'bd87a2a83030ed4aadb1fa28815130fa'
+    session_name = "myGrab_album_uploader"
+
+    # Создаём временный клиент
+    clientx = TelegramClient(session_name, api_id, api_hash)
+    await clientx.start()
+
+    try:
+        # Получаем entity целевой группы/чата
+        chat_entity = await clientx.get_entity(entity)
+
+        media_to_send = []
+        for path in file_paths:
+            if not os.path.exists(path):
                 continue
-            if o.grouped_id != None:
-                gpid = o.grouped_id
+            # Определяем, фото или видео
+            ext = os.path.splitext(path)[1].lower()
+            if ext in (".jpg", ".jpeg", ".png"):
+                # Загружаем фото
+                f = await clientx.upload_file(path, use_cache=True, part_size_kb=512)
+                media_to_send.append(f)
+                os.remove(path)
+            elif ext in (".mp4", ".mkv", ".avi"):
+                # Загружаем видео (без атрибутов - в режиме альбома Telethon их не применит)
+                f = await clientx.upload_file(path, use_cache=True, part_size_kb=512)
+                media_to_send.append(f)
+                os.remove(path)
+            else:
+                print(f"Unsupported file format: {path}")
+                # Можно всё равно отправить как документ
+                # f = await clientx.upload_file(path, use_cache=True, part_size_kb=512)
+                # media_to_send.append(f)
+                # os.remove(path)
 
-            # chat_id = target_group.id
-                album = []
-                result = ''
-                while gpid == o.grouped_id:
-                    message =  client.get_messages(target_group.id, ids=i)
-                    if message == None:
-                        break
-            # Check if the message has an album
-                    gpid = message.grouped_id
-                    if message.media and isinstance(message.media, types.MessageMediaPhoto) and message.media.photo.sizes:
-                    # Forward the message to your target group with a custom caption
-                        i = i + 1
-                        regex = r"sergio_open"
-                        replacement = rf"sergei_open"
-                        
-                        if o.text !='' and result == '':
-                                
-                            resulttxt = re.sub(regex, replacement, o.text)
-                        k = message.download_media()
-                        album.append(k)
-                        message = client.get_messages(target_group.id, ids=i)
-                        if message == None:
-                            break
-                        gpid = message.grouped_id
-                    elif message.media and message.video:
-                        i = i + 1
-                        regex = r"sergio_open"
-                        replacement = rf"sergei_open"
-                        result = ''
-                        if o.text !='' and result == '':
-                                
-                            resulttxt = re.sub(regex, replacement, o.text)
-                        k = message.download_media()
-                        album.append(k)
-                        message = client.get_messages(target_group.id, ids=i)
-                        if message == None:
-                            break
-                        gpid = message.grouped_id
-                    else:
-                        i = i + 1
-                async def send_album(group_id, file_paths, ktxt):
-                        api_id = 20228113
-                        api_hash = 'bd87a2a83030ed4aadb1fa28815130fa'
-
-# Создайте или укажите StringSession, чтобы сохранить сессию авторизации
-                        session_name = "myGrab11x"  # Если у вас уже есть StringSession, вставьте его сюда
-                        clientx = TelegramClient(session_name, api_id, api_hash, system_version="14.16.31-xc")
-                        clientx.start()
-                        try:
-                            # Get the group entity
-                            entity = clientx.get_entity(-1001978707166)
-
-                            # Send the media as an album
-                            media = []
-                            for file_path in file_paths:
-                                if file_path.lower().endswith(('.jpg', '.jpeg', '.png')):
-                                    media.append(clientx.upload_file(file_path, use_cache=True))
-                                    os.remove(file_path)
-                                elif file_path.lower().endswith(('.mp4', '.mkv', '.avi')):
-                                    media.append(clientx.upload_file(file_path, use_cache=True, part_size_kb=5120, progress_callback=None))
-                                    os.remove(file_path)
-                                else:
-                                    print(f"Unsupported file format: {file_path}")
-
-                            clientx.send_file(entity, file=media, caption=resulttxt)
-
-                            print("Album sent successfully!")
-                        except Exception as e:
-                            print(f"Error sending the album: {e}")
-                send_album(for_group, album, resulttxt)
-                    # client.forward_messages(for_group.id, message, target_group.id)
-                time.sleep(8)
-                i = i - 1
-            j =   client.get_messages(target_group.id, ids=i)
-            if o.grouped_id == None:
-                try:
-                    if j.media != None:
-                        
-                        # if j.file.size > 200000000:
-                        #     i = i + 1
-                        #     g = g+ 1
-                        #     print("пропускаю слишком большой файл")
-                            # continue 
-                        print(f"приступаю к загрузки\nразмер файла ({(j.file.size ) / 8000000} mb) ")
-                        k = j.download_media()
-                        # txt = re.sub(r'@max_barzz(?!\d*_bot)', '@iconparablllle1', j.text)
-                        # txt = re.sub(r'@maxbarz_bot', '@maxbraz_bot', txt)
-                        # # txt = j.text.replace("incomparablllle1_bot", "iconparablllle")
-                        # txt = txt.replace("instagram.com/vlad_fit1", " ")
-                        # txt = txt.replace("twitter.com/incomparablllle", " ")
-                        # txt = re.sub(r'\b((http|https)://[^\s]+|\S+\.com|\S+\.ru|\S+vlad_fit1)\b', '', txt2)
-                        
-                        
-                        
-                        
-                        # try:
-                        #     print(f"сохранил файл с id {i}\nПриступаю к отправки в телеграм" )
-
-
-
-                            # from moviepy.editor import VideoFileClip
-
-                            # # Открываем исходный видеофайл
-                            # video = VideoFileClip(f"./{k}")
-
-                            # # Уменьшаем размер видео в два раза
-                            # # video_resized = video.resize((int(video.w/2), int(video.h/2)))
-
-                            # # Сохраняем сжатое видео в формате mp4
-                            # video.write_videofile(f"./{k}",bitrate='200k', codec='libx264')
-                        try:
-                            if j.video_note:
-                                regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                                replacement = rf"https://t.me/TXPRIVAT_BOT"
-                                result = ''
-                                if o.text !='' and result == '':
-                                    
-                                    resulttxt = re.sub(regex, replacement, o.text)
-                                else:
-                                    resulttxt = ''
-                                client.send_file(for_group.id, f"./{k}", caption=txt)
-                                # video_note = types.InputMediaFile(file=f"./{k}", duration=j.file.duration, w=j.file.width, h= j.file.height, supports_streaming=True)
-                                # client(functions.messages.SendMediaRequest(
-                                #     peer=for_group.id,
-                                #     media=video_note,
-                                #     random_id=client.get_random_id(),
-                                #     reply_to_msg_id=None
-                                # ))
-                                i = i + 1
-                                continue 
-                            
-                            
-
-        # Do something with the thumbnail, e.g. save it to a file
-                            # thumbnail_file_path = './thumbnail.jpg'
-                            # try:
-                            #     thumbnail_bytes = j.download_media(j.video.thumbs[1])
-                            #     thumbnail = bytearray(thumbnail_bytes)
-                            #     with open(thumbnail_file_path, 'wb') as f:
-                            #         f.write(thumbnail)
-                            # except IndexError:
-                            #     print('No thumbnail found for video.')
-                            # except Exception as e:
-                            #     print('Error downloading thumbnail:', e)
-                            # async def send_video(chat_id , video, txt, i):
-                            if j.video and not j.video_note:
-                                regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                                replacement = rf"https://t.me/TXPRIVAT_BOT"
-                                result = ''
-                                if o.text !='' and result == '':
-                                        
-                                    resulttxt = re.sub(regex, replacement, o.text)
-                                else:
-                                    resulttxt = ''
-                                client.send_file(for_group.id, f"./{k}", caption=resulttxt)
-                                i = i + 1
-                            if j.photo:
-                                regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                                replacement = rf"https://t.me/TXPRIVAT_BOT"
-                                result = ''
-                                if o.text !='' and result == '':
-                                        
-                                    resulttxt = re.sub(regex, replacement, o.text)
-                                else:
-                                    resulttxt = ''
-                                i = i + 1
-                                client.send_file(for_group.id, f"./{k}", caption=resulttxt)
-                            logging.info("File sent successfully")
-                            print(f"\nотправленно {k}")
-                            
-                        except Exception as e:
-                            logging.error(f"Error sending file: {e}")
-                            print(f"\nне отправленно {k}")
-                        
-                        try:
-                            os.remove(f"./{k}")
-                            print(f"\n{k} удалено")
-                        except:
-                            print(f"\n{k} не удалено")
-                        i = i + 1
-                        g = g+ 1
-                    else:
-                        i = i + 1
-                        g = g+ 1
-                        continue
-                except:
-                    i = i + 1
-                    g = g+ 1
-                    
-                    continue
-else:
-
-    
-    k =  client.get_messages(target_group.id)
-    print (k.total)
-    l = 0
-    # i = 542
-    g = 2
-    i=1
-    
-    while g <=k.total:
-        if i == 14:
-             pass
-        txt2 = txt
-        if l == 3:
-                txt2 = txt1
-                l= 0
-        j =  client.get_messages(target_group.id, ids=i)
-        if j == None:
-            i = i + 1
-            g = g+ 2
-            continue
-        o = j
-        a = {}
-        hu = 0
-        if o.grouped_id != None:
-            gpid = o.grouped_id
-
-            chat_id = target_group.id
-            album = []
-            result = ''
-            while gpid == o.grouped_id:
-                message =  client.get_messages(target_group.id, ids=i)
-                if message == None:
-                     break
-        # Check if the message has an album
-                gpid = message.grouped_id
-                if message.media and isinstance(message.media, types.MessageMediaPhoto) and message.media.photo.sizes:
-                # Forward the message to your target group with a custom caption
-                    i = i + 1
-                    regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                    replacement = r" "
-                    
-                    if o.text !='' and result == '':
-                            
-                        result = re.sub(regex, replacement, o.text)
-                        
-                    album.append(message.media.photo)
-                    message =  client.get_messages(target_group.id, ids=i)
-                    if message == None:
-                        break
-                    gpid = message.grouped_id
-                elif message.media and message.video:
-                    i = i + 1
-                    regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                    replacement = r" "
-                    result = ''
-                    if o.text !='' and result == '':
-                            
-                        result = re.sub(regex, replacement, o.text)
-                    album.append(message.file.media)
-                    message =  client.get_messages(target_group.id, ids=i)
-                    if message == None:
-                        break
-                    gpid = message.grouped_id
-                else:
-                    i = i + 1
-            client.send_message(for_group.id, file=album, message=f"{result}\n{ktxt}")
-            time.sleep(2)
-            # client.send_message(1800185022, file=album, message="")
-                # client.forward_messages(for_group.id, message, target_group.id)
-            time.sleep(8)
-            i = i - 1
-        if j == None:
-            i = i + 1
-            g = g+ 1
-            continue
-            
-        o = j
-        if o.file != None:
-            if o.video and o.grouped_id == None or o.photo and  o.grouped_id == None:
-                
-                    try:
-                        regex = r"(https?:\/\/\S+|t\.me\/[\w-]+)(?=\))"
-                        replacement = r" "
-                        result = ''
-                        if o.text !='':
-                             
-                            result = re.sub(regex, replacement, o.text)
-                        client.send_file(for_group.id, file=o, caption=f"{result}\n{ktxt}")
-                        # time.sleep(2)
-                        # client.send_file(1800185022, file=o, caption=ktxt)
-                        
-                        # client.send_file(5308827264, file="./client.send_file(for_group.id, file=o, caption=txt2)", caption=txt2)
-                        i = i + 1
-                        g = g+ 1
-                        l = l + 1
-                        time.sleep(8)
-                    except:
-                        i = i + 1
-                        g = g+ 1
-                        continue
-                    try:
-                        print(f"текст: {o.text} ;;; id : {o.id} ") 
-                    except:
-                        pass
-                
-            
-            
-                # async def handler(event):
-
-                #     # craft a new message and send
-                #     client.send_message(
-                #         for_group.id,
-                #         file=o.event.messages, # event.messages is a List - meaning we're sending an album
-            else:   #         message=event.original_update.message.message,  # get the caption message from the album
-                i = i + 1
-                g = g+ 1
-                l = l + 1       # )
+        if media_to_send:
+            await clientx.send_file(
+                chat_entity,
+                file=media_to_send,
+                caption=caption
+            )
+            print("Album sent successfully!")
         else:
-                    
-                    i = i + 1
-                    g = g+ 2
-                    try:
-                        print(f"текст: {o.text} ;;; id : {o.id} ") 
-                    except:
-                        pass  
+            print("No media to send as album.")
+    finally:
+        await clientx.disconnect()
+
+
+async def main():
+    async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
+        print("Клиент Telethon запущен!\n")
+
+        # 1) Выбираем источник и приёмник
+        source = await select_group(client, "Выберите группу (ИСТОЧНИК)")
+        target = await select_group(client, "Выберите группу (ПРИЕМНИК)")
+
+        total = await get_total_messages(client, source)
+        print(f"Всего сообщений в источнике: {total}")
+
+        # Начинаем с msg_id = 1 (или любой, который вам нужен)
+        msg_id = 36
+
+        while msg_id <= total:
+            try:
+                msg = await client.get_messages(source, ids=msg_id)
+                if not msg:
+                    msg_id += 1
+                    continue
+
+                # === Если это альбом (grouped_id) ===
+                if msg.grouped_id:
+                    grouped_id = msg.grouped_id
+                    album_paths = []
+                    album_caption = ""
+
+                    while True:
+                        sub_msg = await client.get_messages(source, ids=msg_id)
+                        if not sub_msg or sub_msg.grouped_id != grouped_id:
+                            break
+
+                        # Пример замены текста (sergio_open -> sergei_open) - если хотите
+                        if (not album_caption) and sub_msg.text:
+                            album_caption = sub_msg.text.replace("sergio_open", "sergei_open")
+
+                        if sub_msg.media:
+                            # Проверим: фото или видео
+                            if getattr(sub_msg, 'video', None) or hasattr(sub_msg.media, 'document'):
+                                # Скачиваем видео-файл (без атрибутов для альбома, 
+                                # т.к. Telethon всё равно не применит streaming отдельно)
+                                temp_video = random_filename(prefix="album_video_", ext=".mp4")
+                                ok = await iter_download_to_file(client, sub_msg, temp_video)
+                                if ok:
+                                    album_paths.append(temp_video)
+                                else:
+                                    if os.path.exists(temp_video):
+                                        os.remove(temp_video)
+                            else:
+                                # Фото или другое
+                                temp_photo = random_filename(prefix="album_photo_", ext=".jpg")
+                                ok = await iter_download_to_file(client, sub_msg, temp_photo)
+                                if ok:
+                                    album_paths.append(temp_photo)
+                                else:
+                                    if os.path.exists(temp_photo):
+                                        os.remove(temp_photo)
+
+                        msg_id += 1
+                        if msg_id > total:
+                            break
+
+                    # Отправляем альбом
+                    if album_paths:
+                        try:
+                            # Вызываем вспомогательную функцию
+                            await send_album_as_uploads(target, album_paths, caption=album_caption)
+                        except Exception as e:
+                            print(f"Ошибка при отправке альбома: {e}")
+
+                    continue  # переходим к следующему сообщению
+
+                # === Если одиночное медиа ===
+                if msg.media:
+                    # Проверим, видео ли это (чтобы сделать "reupload_video")
+                    if getattr(msg, 'video', None) or hasattr(msg.media, 'document'):
+                        params = await reupload_video(client, msg)
+                        if params:
+                            try:
+                                await client.send_file(
+                                    target,
+                                    **params
+                                )
+                                print(f"Отправлено одиночное видео (ID={msg.id})")
+                            except Exception as e:
+                                print(f"Ошибка при отправке видео ID={msg.id}: {e}")
+
+                            # Удаляем временные файлы (видео + thumb)
+                            local_video = params['file']
+                            if local_video and os.path.exists(local_video):
+                                os.remove(local_video)
+                            if 'thumb' in params and params['thumb']:
+                                if os.path.exists(params['thumb']):
+                                    os.remove(params['thumb'])
+                        else:
+                            print(f"Не удалось скачать видео (ID={msg.id}), пропускаем.")
+                    else:
+                        # Фото или другое медиа - скачиваем и отправляем
+                        photo_path = random_filename("photo_", ".jpg")
+                        ok = await iter_download_to_file(client, msg, photo_path)
+                        if ok:
+                            try:
+                                await client.send_file(
+                                    target,
+                                    file=photo_path,
+                                    caption='',  # или свой текст
+                                    part_size_kb=PART_SIZE_KB
+                                )
+                                print(f"Отправлено фото/медиа (ID={msg.id})")
+                            except Exception as e:
+                                print(f"Ошибка при отправке (ID={msg.id}): {e}")
+                            if os.path.exists(photo_path):
+                                os.remove(photo_path)
+
+                msg_id += 1
+
+            except FloodWaitError as e:
+                print(f"FloodWait: нужно подождать {e.seconds} сек (msg_id={msg_id})")
+                await asyncio.sleep(e.seconds)
+            except Exception as ex:
+                print(f"Ошибка на сообщении {msg_id}: {ex}")
+                msg_id += 1
+                await asyncio.sleep(1)
+
+        print("Парсинг и копирование завершены.")
+
+
+if __name__ == "__main__": #1
+    asyncio.run(main())
+
+
